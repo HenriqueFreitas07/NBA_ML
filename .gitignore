@@ -2,3 +2,5 @@
 figures/*
 *.txt
 *.pdf
+venv
+__pycache__/*
