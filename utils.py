@@ -143,64 +143,62 @@ def aggregate_matchup_data(df, matchup):
 
     return result
 
-def playerMatchUpIntersection(regular_season_all_parts,matchup_games,players:Dict[Tuple[str,str],Dict[str,float]]):
+def playerMatchUpIntersection(regular_season_all_parts, matchup_games, players_df: pd.DataFrame):
     """
-    Function to calculate the win percentage of players in a specific matchup.
-    :param regular_season_all_parts: DataFrame containing player statistics for the regular season
-    :param matchup_games: DataFrame containing the matchup games
-    :param players: Dictionary containing player names and their impact metrics, structured as:
-                    {('Player Name', 'Team Abbreviation'): (PlayerImpactM1, ...)} 
-    :return DataFrame with: 
-        -MATCHUP_STANDARD
-        -PlayerImpactM1
-        -personName
-        -teamTricode
-        -gamePlayed
-        -matchupWinPercentage
+    For each player in the given DataFrame, calculate their win % in a specific matchup.
 
+    :param regular_season_all_parts: DataFrame of all box scores
+    :param matchup_games: DataFrame of games in a specific matchup
+    :param players_df: DataFrame with at least ['personName', 'teamTricode', 'PlayerImpactM1', ...]
+    :return: DataFrame with matchup stats per player
     """
     matchup_games = matchup_games.rename(columns={"GAME_ID": "gameId"})
-    rows=[]
-    for p in  players.keys():
-        TEAM=p[1]       
-        NAME=p[0]
-        player_statistic=regular_season_all_parts[regular_season_all_parts["personName"].str.contains(NAME)]
-        player_statistic=player_statistic[player_statistic["teamTricode"]==TEAM]
-        player_statistic=player_statistic.filter(items=["season_year","gameId","teamTricode","personName","minutes"])
-        player_statistic=player_statistic[player_statistic['minutes'].notna()] # filter the mathcup games that the players hasn't played
-        merged_df = pd.merge(player_statistic, matchup_games, on="gameId", how="inner")
+    rows = []
+
+    for _, row in players_df.iterrows():
+        name = row['personName']
+        team = row['teamTricode']
+        metrics = row.drop(['personName', 'teamTricode']).to_dict()
+
+        # Filter for this player's stats
+        player_stat = regular_season_all_parts[
+            (regular_season_all_parts['personName'] == name) &
+            (regular_season_all_parts['teamTricode'] == team) &
+            (regular_season_all_parts['minutes'].notna())
+        ][['season_year', 'gameId', 'teamTricode', 'personName', 'minutes']]
+
+        merged_df = pd.merge(player_stat, matchup_games, on='gameId', how='inner')
         if merged_df.empty:
             continue
 
+        # Determine win
         def did_win(row):
             if row['teamTricode'] == row['HOME_TEAM']:
                 return row['HOME_WL'] == 1
             elif row['teamTricode'] == row['AWAY_TEAM']:
                 return row['AWAY_WL'] == 1
-            else:
-                return False  # Shouldn't happen
+            return False
 
-        merged_df["won"] = merged_df.apply(did_win, axis=1)
+        merged_df['won'] = merged_df.apply(did_win, axis=1)
+
         total_games = len(merged_df)
-        total_wins = merged_df["won"].sum()
+        total_wins = merged_df['won'].sum()
         win_percentage = total_wins / total_games if total_games > 0 else 0
-        merged_df["matchupWinPercentage"]=win_percentage
-        merged_df["PlayerImpactM1"]=players[p][0]
-        matchup_standard = merged_df["MATCHUP_STANDARD"].iloc[0]
 
-        rows.append({
-            "MATCHUP_STANDARD": matchup_standard,
-            "PlayerImpactM1": players[p][0],
-            "personName": NAME,
-            "teamTricode": TEAM,
-            "gamePlayed":total_games,
-            "matchupWinPercentage": round(win_percentage, 6)
-        })
+        # Collect result row
+        result = {
+            'personName': name,
+            'teamTricode': team,
+            'gamePlayed': total_games,
+            'matchupWinPercentage': round(win_percentage, 3),
+            'MATCHUP_STANDARD': merged_df['MATCHUP_STANDARD'].iloc[0]
+        }
+        result.update(metrics)
 
-    # Create final DataFrame
-    final_df = pd.DataFrame(rows)
-        # all_results=pd.concat([all_results,merged_df.filter(items=["MATCHUP_STANDARD","PlayerImpactM1","personName","gameId","matchupWinPercentage","teamTricode"])]) 
-    return final_df 
+        rows.append(result)
+
+    return pd.DataFrame(rows)
+
 
 def calculate_elo_rating(df, initial_elo=1500, k=20):
     """
