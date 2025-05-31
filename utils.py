@@ -279,3 +279,45 @@ def calculate_elo_rating(df, initial_elo=1500, k=20):
 
     df['elo_before_game'] = df.apply(get_elo, axis=1)
     return df
+
+def get_head_to_head_win_pct(df: pd.DataFrame, matchup: tuple, season=None):
+    team1_abbr, team2_abbr = matchup
+
+    if season is not None:
+        season = convert_int_season_to_str(season)
+        df = df[df["SEASON_YEAR"] == season].copy()  # ✅ Make an explicit copy here
+
+    # Standardize the matchup format
+    df['MATCHUP_STANDARD'] = df['MATCHUP'].str.replace("@", "vs.", regex=False)
+
+    # Build tags for both directions
+    matchup_tag = f"{team1_abbr} vs. {team2_abbr}"
+    matchup_inverse_tag = f"{team2_abbr} vs. {team1_abbr}"
+
+    # Filter games between both teams
+    df = df[df['MATCHUP_STANDARD'].isin([matchup_tag, matchup_inverse_tag])].copy()
+
+    # Drop duplicate games (since each matchup is logged twice, once per team)
+    df = df.drop_duplicates(subset='GAME_ID', keep='first')
+
+    total_games = len(df)
+    if total_games == 0:
+        return {
+            "TEAM_A": team1_abbr,
+            "TEAM_B": team2_abbr,
+            f"{team1_abbr}_win_pct": None,
+            f"{team2_abbr}_win_pct": None,
+            "total_games": 0
+        }
+
+    # Count team1 wins
+    team1_wins = (df['TEAM_ABBREVIATION'] == team1_abbr) & (df['WL'] == 'W')
+    wins = team1_wins.sum()
+
+    return {
+        "TEAM_A": team1_abbr,
+        "TEAM_B": team2_abbr,
+        f"{team1_abbr}_win_pct": round(wins / total_games, 3),
+        f"{team2_abbr}_win_pct": round(1 - (wins / total_games), 3),
+        "total_games": total_games
+    }
