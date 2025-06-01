@@ -8,13 +8,53 @@ import sys
 import os 
 from dotenv import load_dotenv
 load_dotenv()
+
+# NBA Teams Mapping
+teams = {
+    'ATL': 'Atlanta Hawks',
+    'BOS': 'Boston Celtics',
+    'BKN': 'Brooklyn Nets',
+    'CHA': 'Charlotte Hornets',
+    'CHI': 'Chicago Bulls',
+    'CLE': 'Cleveland Cavaliers',
+    'DAL': 'Dallas Mavericks',
+    'DEN': 'Denver Nuggets',
+    'DET': 'Detroit Pistons',
+    'GSW': 'Golden State Warriors',
+    'HOU': 'Houston Rockets',
+    'IND': 'Indiana Pacers',
+    'LAC': 'Los Angeles Clippers',
+    'LAL': 'Los Angeles Lakers',
+    'MEM': 'Memphis Grizzlies',
+    'MIA': 'Miami Heat',
+    'MIL': 'Milwaukee Bucks',
+    'MIN': 'Minnesota Timberwolves',
+    'NOP': 'New Orleans Pelicans',
+    'NYK': 'New York Knicks',
+    'OKC': 'Oklahoma City Thunder',
+    'ORL': 'Orlando Magic',
+    'PHI': 'Philadelphia 76ers',
+    'PHX': 'Phoenix Suns',
+    'POR': 'Portland Trail Blazers',
+    'SAC': 'Sacramento Kings',
+    'SAS': 'San Antonio Spurs',
+    'TOR': 'Toronto Raptors',
+    'UTA': 'Utah Jazz',
+    'WAS': 'Washington Wizards'
+}
 MODEL_SAVE_PATH = os.getenv("MODELS_FOLDER", "./models")
 DATA_FOLDER = os.getenv("DATA_FOLDER", "./models")
 
 parser = argparse.ArgumentParser(description="Predict NBA matchup win probabilities.")
 parser.add_argument("--season", type=int, required=True, help="Season year (e.g., 2017)")
 parser.add_argument("--home", action="store_true", help="Set if the first team is at home")
-parser.add_argument("--matchup", nargs=2, required=True, help="Two team abbreviations (e.g., PHX TOR)")
+parser.add_argument(
+    "--matchup",
+    nargs=2,
+    required=True,
+    help="Two team abbreviations (e.g., PHX TOR). Teams: " +
+         ", ".join([f"{abbr} ({name})" for abbr, name in teams.items()])
+)
 args = parser.parse_args()
 
 SEASON = args.season
