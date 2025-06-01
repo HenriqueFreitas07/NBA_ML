@@ -292,42 +292,71 @@ def get_head_to_head_win_pct(df: pd.DataFrame, matchup: tuple, season=None):
 
     if season is not None:
         season = convert_int_season_to_str(season)
-        df = df[df["SEASON_YEAR"] == season].copy()  # ✅ Make an explicit copy here
+        df = df[df["SEASON_YEAR"] == season].copy()
 
-    # Standardize the matchup format
+    # Keep original MATCHUP column to extract home/away info
     df['MATCHUP_STANDARD'] = df['MATCHUP'].str.replace("@", "vs.", regex=False)
 
-    # Build tags for both directions
     matchup_tag = f"{team1_abbr} vs. {team2_abbr}"
     matchup_inverse_tag = f"{team2_abbr} vs. {team1_abbr}"
 
-    # Filter games between both teams
+    # Filter relevant games
     df = df[df['MATCHUP_STANDARD'].isin([matchup_tag, matchup_inverse_tag])].copy()
 
-    # Drop duplicate games (since each matchup is logged twice, once per team)
+    # Drop duplicate games by GAME_ID
     df = df.drop_duplicates(subset='GAME_ID', keep='first')
 
-    total_games = len(df)
-    if total_games == 0:
+    if df.empty:
         return {
             "TEAM_A": team1_abbr,
             "TEAM_B": team2_abbr,
-            f"{team1_abbr}_win_pct": None,
-            f"{team2_abbr}_win_pct": None,
+            f"{team1_abbr}_home_win_pct": None,
+            f"{team1_abbr}_away_win_pct": None,
+            f"{team2_abbr}_home_win_pct": None,
+            f"{team2_abbr}_away_win_pct": None,
             "total_games": 0
         }
 
-    # Count team1 wins
-    team1_wins = (df['TEAM_ABBREVIATION'] == team1_abbr) & (df['WL'] == 'W')
-    wins = team1_wins.sum()
+    # Determine home and away teams from the original MATCHUP string
+    def get_home_away(row):
+        parts = row['MATCHUP'].split(' ')
+        if '@' in row['MATCHUP']:
+            away, home = parts[0], parts[2]
+        else:
+            away, home = parts[2], parts[0]
+        return pd.Series([home, away])
+
+    df[['HOME_TEAM', 'AWAY_TEAM']] = df.apply(get_home_away, axis=1)
+
+    # Helper function to compute win percentage
+    def compute_win_pct(team, location):
+        if location == "home":
+            games = df[df['HOME_TEAM'] == team]
+            wins = games[(games['TEAM_ABBREVIATION'] == team) & (games['WL'] == 'W')]
+        else:
+            games = df[df['AWAY_TEAM'] == team]
+            wins = games[(games['TEAM_ABBREVIATION'] == team) & (games['WL'] == 'W')]
+        total = len(games)
+        return round(len(wins) / total, 3) if total > 0 else None
+    def compute_total_win_pct(team):
+        games = df[df['TEAM_ABBREVIATION'] == team]
+        wins = games[games['WL'] == 'W']
+        total = len(games)
+        return round(len(wins) / total, 3) if total > 0 else None
 
     return {
-        team1_abbr: round(wins / total_games, 3),
-        team2_abbr: round(1 - (wins / total_games), 3),
-        "total_games": total_games
+        "TEAM_A": team1_abbr,
+        "TEAM_B": team2_abbr,
+        f"{team1_abbr}_home_win_pct": compute_win_pct(team1_abbr, "home"),
+        f"{team1_abbr}_away_win_pct": 1 - compute_win_pct(team2_abbr, "home"),
+        f"{team2_abbr}_home_win_pct": compute_win_pct(team2_abbr, "home"),
+        f"{team2_abbr}_away_win_pct": 1 - compute_win_pct(team1_abbr, "home"),
+        f"{team1_abbr}_total_win_pct": compute_total_win_pct(team1_abbr),
+        "total_games": len(df)
     }
 
 def predict_matchup(model, playersStats, all_elos, matchup, season, is_home, player_count):
+    regular_games_total = pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_totals_2010_2024.csv")
     model.eval()
 
     team1, team2 = matchup
@@ -339,7 +368,7 @@ def predict_matchup(model, playersStats, all_elos, matchup, season, is_home, pla
         (all_elos['TEAM_ABBREVIATION'].isin([team1, team2]))
     ]
     elo_teams = [int(matchUp_elos[matchUp_elos['TEAM_ABBREVIATION'] == t]['elo_before_game'].iloc[0]) for t in matchup]
-
+    elos = [(e - 1300) / 500 for e in elo_teams]  # ELO scaling
     # Player features
     player_features = ['playerImpact']
     players = [
@@ -360,10 +389,14 @@ def predict_matchup(model, playersStats, all_elos, matchup, season, is_home, pla
     # Tensors
     team1_tensor = torch.tensor(teamsData[team1][:player_count]).unsqueeze(0).float()
     team2_tensor = torch.tensor(teamsData[team2][:player_count]).unsqueeze(0).float()
-    contextData = [is_home, elo_teams[0], elo_teams[1]]
+    h2h = get_head_to_head_win_pct(regular_games_total, matchup, season=season)
+    contextData = [is_home, elos[0], elos[1]]#,home_win_percetage_t1,away_win_percetage_t2]
     context_tensor = torch.tensor([contextData], dtype=torch.float32)
 
     # Prediction
     with torch.no_grad():
         pred = model(team1_tensor, team2_tensor, context_tensor)
-    return float(pred.item())
+
+    team1_prob = float(pred[0][0].item())
+    team2_prob = float(pred[0][1].item())
+    return team1_prob,team2_prob

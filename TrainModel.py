@@ -1,9 +1,16 @@
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
+MODEL_SAVE_PATH = os.getenv("MODEL_SAVE_PATH", "./models")
+DATA_FOLDER = os.getenv("DATA_FOLDER", "./datasets/DATA_AGGREGATIONS")
+
 import itertools
 import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from model import FullPlayerTeamMatchupModel  # import the model
+from model import PlayerImpactMatchupModel
 from utils import (
     get_head_to_head_win_pct,
     convert_int_season_to_str,
@@ -11,95 +18,81 @@ from utils import (
 )
 
 # ---------------- PARAMETERS ---------------------
-DATA_FOLDER = "./datasets/DATA_AGGREGATIONS/"
-SEASON = 2022 
-IS_HOME = 1
-player_features = ['playerImpact']
-num_epochs = 7
-learning_rate = 0.001
-hidden_dim = 64
+SEASON = 2022
+player_features = ['playerImpact']  # only use impact
+context_dim = 3  # [is_home, elo1, elo2]
+num_epochs = 10
+learning_rate = 1e-3
 
-# Load data
-
-all_possible_matchups = list(itertools.combinations(teams, 2))
-
+# ---------------- LOAD DATA ---------------------
 regular_games_total = pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_totals_2010_2024.csv")
-regular_season_all_parts = pd.concat([
-    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_1.csv"),
-    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_2.csv"),
-    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_3.csv")
-])
-all_elos = pd.read_csv(DATA_FOLDER + "gamesAndEloStats.csv")
 playersStats = pd.read_csv(DATA_FOLDER + "/playerStats.csv")
+all_elos = pd.read_csv(DATA_FOLDER + "/gamesAndEloStats.csv")
 
-# Get fixed player count for the model
+# Get valid player count per team
 player_count = min([
     len(playersStats[(playersStats['teamTricode'] == t) & 
                      (playersStats['season_year'] == convert_int_season_to_str(SEASON))])
     for t in teams
 ])
 
-player_feat_dim = len(player_features)
-context_dim = 3  # [homeAway, elo_1, elo_2]
-
-# Initialize model, optimizer, loss
-model = FullPlayerTeamMatchupModel(player_feat_dim, player_count, context_dim, hidden_dim)
+# ---------------- MODEL INIT ---------------------
+model = PlayerImpactMatchupModel(num_players=player_count, context_dim=context_dim)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-loss_fn = nn.BCELoss()
+loss_fn = nn.MSELoss()
 
-# ---------------- TRAINING LOOP ---------------------
+# ---------------- TRAIN LOOP ---------------------
 model.train()
+all_matchups = list(itertools.permutations(teams, 2))
+
 for epoch in range(num_epochs):
     total_loss = 0
-    num_games = 0
-    for matchup in all_possible_matchups:
+    n_games = 0
+    for team1, team2 in all_matchups:
         try:
-            # Extract player stats
-            team_stats = []
-            for t in matchup:
-                team_df = playersStats[(playersStats['teamTricode'] == t) & 
-                                       (playersStats['season_year'] == convert_int_season_to_str(SEASON))]
-                if len(team_df) < player_count:
-                    raise ValueError(f"Not enough players for {t}")
-                stats = team_df[player_features].to_numpy(dtype=np.float32)[:player_count]
-                team_stats.append(stats)
-            
-            team1_tensor = torch.tensor(team_stats[0]).unsqueeze(0)  # [1, N, F]
-            team2_tensor = torch.tensor(team_stats[1]).unsqueeze(0)
+            # PLAYER IMPACT VECTORS
+            def get_impact(team):
+                df = playersStats[(playersStats['teamTricode'] == team) & (playersStats['season_year'] == convert_int_season_to_str(SEASON))]
+                vals = df[player_features].to_numpy(dtype=np.float32)[:player_count]
+                if len(vals) < player_count:
+                    raise ValueError("not enough players")
+                return torch.tensor(vals).unsqueeze(0)  # [1, N, F], F=1 playerImpact
 
-            # Context features: home flag, ELOs
-            matchup_elos = all_elos[
-                (all_elos['SEASON_YEAR'] == convert_int_season_to_str(SEASON)) &
-                (all_elos['TEAM_ABBREVIATION'].isin(list(matchup)))
-            ]
-            if len(matchup_elos) < 2:
+            p1_tensor = get_impact(team1)
+            p2_tensor = get_impact(team2)
+
+            # CONTEXT: is_home, elo1, elo2
+            elos_df = all_elos[(all_elos['SEASON_YEAR'] == convert_int_season_to_str(SEASON)) & (all_elos['TEAM_ABBREVIATION'].isin([team1, team2]))]
+            if len(elos_df) < 2:
                 continue
-            elos = [int(matchup_elos[matchup_elos['TEAM_ABBREVIATION'] == t]['elo_before_game'].iloc[0]) for t in matchup]
-            context_data = [IS_HOME, elos[0], elos[1]]
-            context_tensor = torch.tensor([context_data], dtype=torch.float32)
+            elo1 = float(elos_df[elos_df['TEAM_ABBREVIATION'] == team1]['elo_before_game'].iloc[0])
+            elo2 = float(elos_df[elos_df['TEAM_ABBREVIATION'] == team2]['elo_before_game'].iloc[0])
+            elo1 = (elo1 - 1300) / 500  # normalize
+            elo2 = (elo2 - 1300) / 500
+            is_home = int(f"{team2} @ {team1}" in regular_games_total['MATCHUP'].values)
+            ctx_tensor = torch.tensor([[is_home, elo1, elo2]], dtype=torch.float32)
 
-            # Label: did teamA win more often than teamB?
-            h2h = get_head_to_head_win_pct(regular_games_total, matchup, season=SEASON)
-            win_pct = h2h[matchup[0]]
-            if win_pct is None:
+            # LABEL: P(team1 wins), P(team2 wins) smoothed from h2h
+            h2h = get_head_to_head_win_pct(regular_games_total, (team1, team2), season=SEASON)
+            p1_win = h2h.get(f"{team1 if is_home else team2}_home_win_pct")
+            p2_win = h2h.get(f"{team1 if not is_home else team2}_away_win_pct")
+            if p1_win is None or p2_win is None:
                 continue
-            label = torch.tensor([[1.0 if win_pct > 0.5 else 0.0]])
+            label = torch.tensor([[p1_win, p2_win]], dtype=torch.float32)
 
-            # Training step
-            output = model(team1_tensor, team2_tensor, context_tensor)
-            loss = loss_fn(output, label)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            # TRAIN STEP
+            pred = model(p1_tensor, p2_tensor, ctx_tensor)
+            loss = loss_fn(pred, label)
+            optimizer.zero_grad(); loss.backward(); optimizer.step()
 
             total_loss += loss.item()
-            num_games += 1
+            n_games += 1
         except Exception as e:
-            print(f"Skipping matchup {matchup} due to error: {e}")
+            print(f"Skip ({team1}, {team2}) → {e}")
 
-    print(f"[Epoch {epoch + 1}] Avg Loss: {total_loss / max(num_games,1):.4f} | Matchups trained on: {num_games}")
+    print(f"Epoch {epoch+1}: Loss = {total_loss / max(n_games,1):.4f}  on {n_games} matchups")
 
 # ---------------- SAVE MODEL ---------------------
-torch.save(model.state_dict(), "nba_matchup_model.pth")
-print("Model saved as nba_matchup_model.pth")
+path=MODEL_SAVE_PATH+"/game_prediction_model.pth"
+torch.save(model.state_dict(),path)
+print(f"Model saved → {path}")
