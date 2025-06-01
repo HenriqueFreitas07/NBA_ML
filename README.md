@@ -57,8 +57,27 @@ O modelo treinado depende diretamente da época (season) utilizada no seu treino
 Para garantir melhores resultados:
 - Treina o modelo com os dados da **mesma época** que vais usar para as previsões.
 - Verifica que todas as equipas têm o número mínimo de jogadores necessários.
-## ⚙️ Usage
+## 📝 Requesitos 
+Antes de usar é necessário que determinados ficheiros sejam criados, pela seguinte ordem de execução:
+```bash
+tuning_experiments.ipynb
+```
+This file creates the impact player model in order to generate the aggreagation file by the execution of the following command:
+```bash
+dataAggregation.ipynb
+```
+### Deves os seguintes 3 ficheiros para prosseguir
+-  ```gamesAndEloStats.csv```
+-  ```playerStats.csv```
+-  ```xgb_tunned.json```
+```bash
+python TrainModel.py
+```
 
+### Deves os ficheiro do modelo principal
+-  ```game_prediction_model.pth```
+
+## ⚙️ Usage
 ```bash
 ./ModelPipeline.py --season SEASON_YEAR --matchup TEAM1 TEAM2 [--home]
 ```
