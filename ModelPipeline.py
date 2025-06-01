@@ -1,32 +1,38 @@
-import itertools
+import torch
+from model import FullPlayerTeamMatchupModel
 import pandas as pd
-from IPython.display import display
-import sklearn
-import json 
-from xgboost import XGBRegressor
-from utils import getMatchAndPlayerStats, getMatchupByTeamBySeason,aggregate_matchup_data,playerMatchUpIntersection,calculate_elo_rating,get_head_to_head_win_pct
-pd.set_option('future.no_silent_downcasting',True)
+from utils import  predict_matchup,convert_int_season_to_str,teams
 DATA_FOLDER="./datasets/DATA_AGGREGATIONS/"
 SEASON=2023
+MATCHUP=("WAS","BOS")
 
-NUM_GAMES=82
-teams=['DAL','MIL','ATL','DEN','HOU','IND','OKC','CHI','ORL','BOS','DET','NYK'
-,'CHA','LAL','SAC','MIA','LAC','GSW','POR','MIN','WAS','BKN','MEM','SAS'
-,'PHX','NOP','UTA','TOR','PHI','CLE']
-all_possible_matchups=list(itertools.combinations(teams, 2))
-print("Loading regular season data...")
-regular_games_total=pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_totals_2010_2024.csv",delimiter=',',header=0)
-regular_season_all_parts=pd.concat([
-        pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_1.csv",delimiter=',',header=0),
-        pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_2.csv",delimiter=',',header=0),
-        pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_3.csv",delimiter=',',header=0)])
+# Recreate model with same params used in training:
+player_feat_dim = 1  # e.g., 'playerImpact'
+num_players = 17    # must match training
+context_dim = 3
+hidden_dim = 64
 
-playersStats=pd.read_csv(DATA_FOLDER+"/playerStats.csv")
-# get all the teams matchup data
-print("Getting matchup data...")
-all_elos = pd.read_csv(DATA_FOLDER+"gamesAndEloStats.csv")
+model = FullPlayerTeamMatchupModel(player_feat_dim, num_players, context_dim, hidden_dim)
+model.load_state_dict(torch.load("nba_matchup_model.pth"))
+model.eval()
 
-print("Joining playerstats with team elos...")
-playersStats=playersStats.merge(right=all_elos,left_on="teamTricode",right_on="TEAM_ABBREVIATION",how="inner")
-display(playersStats)
+# Then run your prediction function or inference here...
+all_elos = pd.read_csv(DATA_FOLDER + "gamesAndEloStats.csv")
+playersStats = pd.read_csv(DATA_FOLDER + "/playerStats.csv")
+player_count = min([
+    len(playersStats[(playersStats['teamTricode'] == t) & 
+                     (playersStats['season_year'] == convert_int_season_to_str(SEASON))])
+    for t in teams
+])
 
+prediction = predict_matchup(
+    model=model, 
+    playersStats=playersStats, 
+    all_elos=all_elos,
+    matchup=MATCHUP, 
+    season=SEASON, 
+    is_home=1,
+    player_count=player_count
+)
+
+print(f"🏀 Win probability for {MATCHUP[0]} vs {MATCHUP[1]}: {prediction:.3f}")

@@ -1,6 +1,13 @@
 import pandas as pd
 from typing import Dict, Tuple
+import torch 
+import torch 
+import numpy as np
 
+
+teams = ['DAL','MIL','ATL','DEN','HOU','IND','OKC','CHI','ORL','BOS','DET','NYK',
+         'CHA','LAL','SAC','MIA','LAC','GSW','POR','MIN','WAS','BKN','MEM','SAS',
+         'PHX','NOP','UTA','TOR','PHI','CLE']
 def convert_int_season_to_str(season):
     if isinstance(season, int):
         return f"{season}-{season%2000 +1 :02d}" 
@@ -315,9 +322,48 @@ def get_head_to_head_win_pct(df: pd.DataFrame, matchup: tuple, season=None):
     wins = team1_wins.sum()
 
     return {
-        "TEAM_A": team1_abbr,
-        "TEAM_B": team2_abbr,
-        f"{team1_abbr}_win_pct": round(wins / total_games, 3),
-        f"{team2_abbr}_win_pct": round(1 - (wins / total_games), 3),
+        team1_abbr: round(wins / total_games, 3),
+        team2_abbr: round(1 - (wins / total_games), 3),
         "total_games": total_games
     }
+
+def predict_matchup(model, playersStats, all_elos, matchup, season, is_home, player_count):
+    model.eval()
+
+    team1, team2 = matchup
+    season_str = convert_int_season_to_str(season)
+    
+    # Get Elo values
+    matchUp_elos = all_elos[
+        (all_elos['SEASON_YEAR'] == season_str) &
+        (all_elos['TEAM_ABBREVIATION'].isin([team1, team2]))
+    ]
+    elo_teams = [int(matchUp_elos[matchUp_elos['TEAM_ABBREVIATION'] == t]['elo_before_game'].iloc[0]) for t in matchup]
+
+    # Player features
+    player_features = ['playerImpact']
+    players = [
+        playersStats[
+            (playersStats['teamTricode'] == t) & 
+            (playersStats['season_year'] == season_str)
+        ].filter(items=player_features).to_dict(orient="list")
+        for t in matchup
+    ]
+    players = [list(zip(*(playerTeam[f] for f in player_features))) for playerTeam in players]
+    teamsData = {t: np.array(players[i], dtype=float) for i, t in enumerate(matchup)}
+
+    # Use fixed player_count (from training/model), but check if data has enough players:
+    for t in matchup:
+        if len(teamsData[t]) < player_count:
+            raise ValueError(f"Not enough players for team {t} in prediction: has {len(teamsData[t])}, requires {player_count}")
+
+    # Tensors
+    team1_tensor = torch.tensor(teamsData[team1][:player_count]).unsqueeze(0).float()
+    team2_tensor = torch.tensor(teamsData[team2][:player_count]).unsqueeze(0).float()
+    contextData = [is_home, elo_teams[0], elo_teams[1]]
+    context_tensor = torch.tensor([contextData], dtype=torch.float32)
+
+    # Prediction
+    with torch.no_grad():
+        pred = model(team1_tensor, team2_tensor, context_tensor)
+    return float(pred.item())
