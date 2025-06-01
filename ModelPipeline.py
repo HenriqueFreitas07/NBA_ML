@@ -64,20 +64,8 @@ MATCHUP = tuple(args.matchup)
 
 # Recreate model with same params used in training:
 player_feat_dim = 1  # e.g., 'playerImpact'
-num_players = 17    # this value may vary based on the season of the trained model
 context_dim = 3
 hidden_dim = 64
-
-model = PlayerImpactMatchupModel(
-    num_players=num_players,
-    context_dim=context_dim,
-    hidden_dim=hidden_dim,
-    dropout=0.3
-)
-
-model.load_state_dict(torch.load(MODEL_SAVE_PATH+"game_prediction_model.pth"))
-model.eval()
-
 # Then run your prediction function or inference here...
 all_elos = pd.read_csv(DATA_FOLDER + "/gamesAndEloStats.csv")
 playersStats = pd.read_csv(DATA_FOLDER + "/playerStats.csv")
@@ -86,6 +74,17 @@ player_count = min([
                      (playersStats['season_year'] == convert_int_season_to_str(SEASON))])
     for t in teams
 ])
+
+model = PlayerImpactMatchupModel(
+    num_players=player_count,
+    context_dim=context_dim,
+    hidden_dim=hidden_dim,
+    dropout=0.3
+)
+
+model.load_state_dict(torch.load(MODEL_SAVE_PATH+"game_prediction_model.pth"))
+model.eval()
+
 
 try:
     # Forward prediction
