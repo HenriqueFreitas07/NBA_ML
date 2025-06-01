@@ -7,6 +7,13 @@ import numpy as np
 teams = ['DAL','MIL','ATL','DEN','HOU','IND','OKC','CHI','ORL','BOS','DET','NYK',
          'CHA','LAL','SAC','MIA','LAC','GSW','POR','MIN','WAS','BKN','MEM','SAS',
          'PHX','NOP','UTA','TOR','PHI','CLE']
+         
+regular_games_total = pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_totals_2010_2024.csv")
+regular_season_all_parts = pd.concat([
+    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_1.csv"),
+    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_2.csv"),
+    pd.read_csv("./datasets/NBA_DATA_2010_2024/regular_season_box_scores_2010_2024_part_3.csv")
+])
 def convert_int_season_to_str(season):
     if isinstance(season, int):
         return f"{season}-{season%2000 +1 :02d}" 
@@ -18,7 +25,7 @@ def convert_min_to_float(min_str):
         return mins + secs / 60
     return 0.0  # handle empty or malformed entries
 
-def getMatchAndPlayerStats(game,player,season=None,teamname=None,filterFields=None):
+def getMatchAndPlayerStats(game,player,season=None,teamname=None,filterFields=[]):
     """
     Function to get the average points of a team in a season
     :param teamname: team name :List[str]
@@ -28,12 +35,13 @@ def getMatchAndPlayerStats(game,player,season=None,teamname=None,filterFields=No
     season=convert_int_season_to_str(season)
     playerScores = player[player['minutes'].notna()].copy()
     playerScores['minutesParsed'] = playerScores['minutes'].apply(convert_min_to_float)
+    game.loc[:,'WL'] = game['WL'].replace({'W': 1, 'L': 0}).infer_objects(copy=False)
     gamePlayer=game.merge(playerScores, how='inner', left_on=['GAME_ID','TEAM_ABBREVIATION'], right_on=['gameId','teamTricode'])
     # add a collumn to count the number of games played by each player
-    gamePlayer.loc[:,'WL'] = gamePlayer['WL'].replace({'W': 1, 'L': 0}).infer_objects(copy=False)
     aggregation= gamePlayer.groupby(['personName','teamTricode','season_year']).agg(
         {
             'WL': 'sum',
+            'plusMinusPoints':'mean',
             'minutesParsed': 'mean',
             'points': 'mean',
             'fieldGoalsPercentage': 'mean',
@@ -47,15 +55,16 @@ def getMatchAndPlayerStats(game,player,season=None,teamname=None,filterFields=No
         }
     ).reset_index()
     aggregation['gamesPlayed'] = gamePlayer.groupby(['personName','teamTricode','season_year'])['gameId'].count().reset_index(drop=True)
-    aggregation.loc[:,'winPercentage'] = aggregation['WL']/aggregation['gamesPlayed']
+
     if season is not None:
         aggregation = aggregation[aggregation['season_year'] == season]
     if teamname is not None:
         aggregation = aggregation[aggregation['teamTricode'].isin(teamname)]
-    if filter:
-        aggregation=aggregation.filter(items=filterFields)
-    aggregation['WL'] = aggregation['WL'].astype(int)
-    return aggregation 
+    if len(filterFields)>0:
+        aggregation.filter(items=filterFields)
+    aggregation['winPercentage'] = aggregation['WL'] / aggregation['gamesPlayed'] 
+    return aggregation.reset_index(drop=True)
+
 
 def getMatchupByTeamBySeason(scores,matchup,season=False):
     """
