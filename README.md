@@ -66,7 +66,7 @@ This file creates the impact player model in order to generate the aggreagation 
 ```bash
 dataAggregation.ipynb
 ```
-### Deves os seguintes 3 ficheiros para prosseguir
+### Deves ter os seguintes 3 ficheiros para prosseguir à previsão de jogos
 -  ```gamesAndEloStats.csv```
 -  ```playerStats.csv```
 -  ```xgb_tunned.json```
@@ -74,7 +74,7 @@ dataAggregation.ipynb
 python TrainModel.py
 ```
 
-### Deves os ficheiro do modelo principal
+### Deves ter o ficheiro seguinte relatico ao modelo principal
 -  ```game_prediction_model.pth```
 
 ## ⚙️ Usage
