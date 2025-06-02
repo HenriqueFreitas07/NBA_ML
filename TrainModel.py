@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 load_dotenv()
 
-MODEL_SAVE_PATH = os.getenv("MODEL_SAVE_PATH", "./models")
+MODEL_SAVE_PATH = os.getenv("MODELS_FOLDER", "./models/")
 DATA_FOLDER = os.getenv("DATA_FOLDER", "./datasets/DATA_AGGREGATIONS")
 
 import itertools

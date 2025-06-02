@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Dict, Tuple
 import torch 
 import numpy as np
-
+pd.set_option('future.no_silent_downcasting', True)
 
 teams = ['DAL','MIL','ATL','DEN','HOU','IND','OKC','CHI','ORL','BOS','DET','NYK',
          'CHA','LAL','SAC','MIA','LAC','GSW','POR','MIN','WAS','BKN','MEM','SAS',

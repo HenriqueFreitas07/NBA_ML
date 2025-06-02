@@ -43,7 +43,7 @@ teams = {
     'WAS': 'Washington Wizards'
 }
 MODEL_SAVE_PATH = os.getenv("MODELS_FOLDER", "./models")
-DATA_FOLDER = os.getenv("DATA_FOLDER", "./models")
+DATA_FOLDER = os.getenv("DATA_FOLDER", "./datasets/DATA_AGGREGATIONS")
 
 parser = argparse.ArgumentParser(description="Predict NBA matchup win probabilities.")
 parser.add_argument("--season", type=int, required=True, help="Season year (e.g., 2017)")
