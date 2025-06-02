@@ -21,7 +21,7 @@ hidden_dim = 64
 df = pd.read_csv("./datasets/NBA_DATA_2010_2024/play_off_totals_2010_2024.csv")
 all_matchups = list(itertools.permutations(teams, 2))
 data = dict()
-SEASON=2022
+SEASON=2021
 
 brier_scores = []
 matchup_labels = []

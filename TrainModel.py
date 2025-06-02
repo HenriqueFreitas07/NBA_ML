@@ -18,7 +18,7 @@ from utils import (
 )
 
 # ---------------- PARAMETERS ---------------------
-SEASON = 2022
+SEASON = 2021
 player_features = ['playerImpact']  # only use impact
 context_dim = 3  # [is_home, elo1, elo2]
 num_epochs = 10
